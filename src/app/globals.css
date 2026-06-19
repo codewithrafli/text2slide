@@ -1,0 +1,251 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================
+   FAMILY.CO INSPIRED DESIGN SYSTEM
+   "Radical Softness" - Premium but approachable
+   ============================================ */
+
+@theme inline {
+  /* Typography */
+  --font-sans: var(--font-inter);
+  --font-brand: var(--font-fraunces);
+
+  /* Map custom tokens to Tailwind */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Super-rounded radius system */
+  --radius-sm: 12px;
+  --radius-md: 24px;
+  --radius-lg: 32px;
+  --radius-xl: 40px;
+  --radius-pill: 9999px;
+}
+
+:root {
+  /* Dark theme is default (Family.co style) */
+  --background: #050505;
+  --foreground: #ffffff;
+
+  /* Surfaces */
+  --card: #121212;
+  --card-foreground: #ffffff;
+  --popover: #121212;
+  --popover-foreground: #ffffff;
+
+  /* Primary action - subtle white for dark mode */
+  --primary: #ffffff;
+  --primary-foreground: #050505;
+
+  /* Secondary - elevated surface */
+  --secondary: #1e1e1e;
+  --secondary-foreground: #ffffff;
+
+  /* Muted - for labels and hints */
+  --muted: #1e1e1e;
+  --muted-foreground: #9ca3af;
+
+  /* Accent - for hover states */
+  --accent: #1e1e1e;
+  --accent-foreground: #ffffff;
+
+  /* Functional */
+  --destructive: #ff3b30;
+  --success: #34d399;
+  --warning: #ff9500;
+
+  /* Borders & inputs */
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #ffffff;
+
+  /* Animation easings */
+  --ease-smooth: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-elastic: cubic-bezier(0.68, -0.6, 0.32, 1.6);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+}
+
+/* Light theme override */
+.light {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #f2f4f7;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f4f7;
+  --secondary-foreground: #000000;
+  --muted: #f2f4f7;
+  --muted-foreground: #666666;
+  --accent: #f2f4f7;
+  --accent-foreground: #000000;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: #000000;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Global UX: Clickable things should look clickable */
+  button,
+  a,
+  [role='button'],
+  input[type='submit'],
+  input[type='reset'],
+  input[type='button'],
+  label[for],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  :disabled,
+  [disabled],
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  /* Brand typography - tight tracking for editorial feel */
+  h1,
+  h2,
+  h3,
+  .font-brand {
+    font-family: var(--font-brand), serif;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+  }
+
+  h1 {
+    @apply text-4xl md:text-5xl lg:text-6xl;
+  }
+
+  h2 {
+    @apply text-2xl md:text-3xl;
+  }
+
+  h3 {
+    @apply text-xl md:text-2xl;
+  }
+}
+
+@layer components {
+  /* Glassmorphism effect for floating elements */
+  .glass {
+    background: rgba(18, 18, 18, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Gradient text effect */
+  .gradient-text {
+    background: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Subtle glow effect for buttons */
+  .glow {
+    box-shadow:
+      0 0 20px rgba(255, 255, 255, 0.1),
+      0 0 40px rgba(255, 255, 255, 0.05);
+  }
+
+  .glow-success {
+    box-shadow:
+      0 0 20px rgba(52, 211, 153, 0.2),
+      0 0 40px rgba(52, 211, 153, 0.1);
+  }
+}
+
+@layer utilities {
+  /* Smooth transitions for micro-interactions */
+  .transition-smooth {
+    transition: all var(--duration-normal) var(--ease-smooth);
+  }
+
+  .transition-fast {
+    transition: all var(--duration-fast) var(--ease-smooth);
+  }
+
+  /* Hover scale effect */
+  .hover-lift {
+    transition:
+      transform var(--duration-normal) var(--ease-smooth),
+      box-shadow var(--duration-normal) var(--ease-smooth);
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 10px 40px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+
+  /* Subtle shine animation for premium feel */
+  @keyframes shine {
+    0% {
+      background-position: -200% center;
+    }
+    100% {
+      background-position: 200% center;
+    }
+  }
+
+  .animate-shine {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: shine 3s ease-in-out infinite;
+  }
+
+  /* Custom scrollbar for premium feel */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    border: 1px solid transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}

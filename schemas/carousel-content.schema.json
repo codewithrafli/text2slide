@@ -1,0 +1,106 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short internal title for the carousel draft."
+    },
+    "subtitle": {
+      "type": "string",
+      "description": "One-line subtitle / hook summary."
+    },
+    "slides": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer" },
+          "template": {
+            "type": "string",
+            "enum": ["cover", "content", "quote", "stat", "list", "steps", "reels", "ppt", "ppt-cover", "ppt-content", "ppt-image", "ppt-closing", "closing"]
+          },
+          "eyebrow": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "tag": { "type": "string" },
+          "cta": { "type": "string" },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "bookmark",
+              "video",
+              "play",
+              "link",
+              "check",
+              "follow",
+              "comment",
+              "heart",
+              "key"
+            ]
+          },
+          "backgroundPosition": {
+            "type": "string",
+            "enum": [
+              "center center",
+              "center top",
+              "center bottom",
+              "left center",
+              "right center",
+              "left top",
+              "right top"
+            ]
+          },
+          "decorations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "icon": {
+                  "type": "string",
+                  "enum": [
+                    "bookmark",
+                    "video",
+                    "play",
+                    "link",
+                    "check",
+                    "follow",
+                    "comment",
+                    "heart",
+                    "key",
+                    "sparkles",
+                    "star",
+                    "asterisk"
+                  ]
+                },
+                "left": { "type": "string" },
+                "top": { "type": "string" },
+                "size": { "type": "string" },
+                "rotate": { "type": "string" },
+                "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+              },
+              "required": ["icon", "left", "top", "size", "rotate", "opacity"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "index",
+          "template",
+          "eyebrow",
+          "title",
+          "body",
+          "tag",
+          "cta",
+          "icon",
+          "backgroundPosition",
+          "decorations"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["title", "subtitle", "slides"],
+  "additionalProperties": false
+}
