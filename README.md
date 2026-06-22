@@ -1,11 +1,12 @@
-# IG Carousel Studio
+# text2slide
 
-Vue + Supabase editor for creating Instagram carousel feeds with editable copy,
-theme controls, logo upload, draft saving, and 1080 x 1350 PNG export.
+text2slide is a Vue + Supabase editor for turning text, briefs, and ideas into
+editable social media slides. It includes template controls, brand styling, logo
+upload, draft saving, AI-assisted content generation, and 1080 x 1350 PNG export.
 
 ## Features
 
-- Edit 4:5 Instagram carousel slides in the browser
+- Turn text prompts into editable 4:5 carousel slides in the browser
 - Customize handle, logo, accent color, texture, and visual theme
 - Add, duplicate, delete, and reorder by selecting slides
 - Export the current slide or every slide as PNG files

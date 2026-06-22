@@ -13,6 +13,8 @@ const PORT = Number(process.env.AI_BRIDGE_PORT || 8787);
 
 const SLIDE_ICONS = ['bookmark', 'video', 'play', 'link', 'check', 'follow', 'comment', 'heart', 'key'];
 const DECORATION_ICONS = [...SLIDE_ICONS, 'sparkles', 'star', 'asterisk'];
+const CARD_TONES = ['blue', 'green', 'orange', 'purple', 'neutral'];
+const PPT_LAYOUTS = ['split', 'cards', 'quote', 'points', 'statement'];
 const TEMPLATES = [
   'cover',
   'content',
@@ -48,6 +50,7 @@ Allowed enums:
 - template: ${TEMPLATES.join(', ')}
 - slide.icon: ${SLIDE_ICONS.join(', ')}
 - decoration.icon: ${DECORATION_ICONS.join(', ')}
+- pptLayout: ${PPT_LAYOUTS.join(', ')}
 - backgroundPosition: ${BACKGROUND_POSITIONS.join(' | ')}
 
 Templates:
@@ -71,7 +74,8 @@ Templates:
   short supporting copy, and optional CTA. decorations MUST be [].
 - "ppt-content": 16:9 PPT lesson slide. Use for middle deck pages: compact title,
   markdown body like the feed content template (paragraphs, bullets, inline code,
-  or image hints when useful), and optional callout. decorations MUST be [].
+  or image hints when useful), optional card components, and optional callout.
+  decorations MUST be [].
 - "ppt-image": 16:9 full image slide. Use only when the user explicitly uploads
   or requests a full-bleed image-only slide. Keep title/body/cta short or empty.
   decorations MUST be [].
@@ -85,6 +89,37 @@ Icon selection (top-level slide.icon, metadata only):
 - url/download/access/link -> "link"
 - follow -> "follow"; comment -> "comment"; like -> "heart"
 - success/done -> "check"; otherwise -> "bookmark"
+
+Card components (visualCards):
+- visualCards is optional and MUST be [] unless a slide genuinely benefits from
+  cards. Use cards for phases, formulas, frameworks, comparisons, steps,
+  checklist items, feature groups, or short grouped concepts.
+- Best use: "ppt-content" slides only. For "ppt-cover", "ppt-closing", "reels",
+  "ppt-image", "cover", and "closing", visualCards MUST be [].
+- The renderer shows every card as the SAME dark glassmorphism component. Tone
+  only changes icon/accent color, not the whole card style.
+- Use 2-4 cards max. Prefer 2 cards for comparison, 3 cards for formula, 4 cards
+  for roadmap/phases/checklist. Keep card copy compact:
+  label <= 24 chars, title <= 32 chars, body <= 74 chars.
+- Each card needs a contextual icon from: ${SLIDE_ICONS.join(', ')}.
+- tone must be one of: ${CARD_TONES.join(', ')}.
+- If visualCards is used, keep body to a one-line bridge sentence or empty.
+- Do NOT force cards on every slide. Plain text is better for narrative slides.
+
+PPT visual layouts:
+- Every "ppt-content" slide should choose pptLayout:
+  - "cards": grouped concepts, phases, formulas, comparisons, frameworks.
+  - "points": 3-5 bullets or ordered steps that need a stronger list visual.
+  - "quote": one sharp opinion, warning, contrast, or mindset sentence.
+  - "statement": one compact idea with 1-2 short lines.
+  - "split": normal lesson slide with text left and visual cue right.
+- For pptLayout "cards", visualCards MUST contain 2-4 cards.
+- For pptLayout "split", "points", or "statement", visualCue SHOULD be filled.
+- For pptLayout "quote", title is the quote/statement and body is short context.
+- visualCue is a compact generated illustration panel, not a real image. Keep it
+  short: title <= 34 chars, body <= 74 chars. Use contextual icon and tone.
+- Avoid tiny floating cards. The design expects either a full card grid, a strong
+  points list, a large quote, or a balanced split with one large glass panel.
 
 Decorations (only for cover & closing) — keep them SPARSE, CONTEXTUAL, never over text:
 - 2-4 items. left/top are percentages of the slide ("80%"), size in cqw ("8cqw"),
@@ -109,7 +144,11 @@ Output shape (JSON object, no prose, no markdown fences):
   "subtitle": string,
   "slides": [
     { "index": int, "template", "eyebrow", "title", "body", "tag", "cta",
-      "icon", "backgroundPosition", "decorations": [
+      "icon", "backgroundPosition", "pptLayout", "visualCue": {
+        "title", "body", "icon", "tone"
+      }, "visualCards": [
+        { "label", "title", "body", "icon", "tone" }
+      ], "decorations": [
         { "icon", "left", "top", "size", "rotate", "opacity" }
       ] }
   ]
@@ -182,6 +221,68 @@ function decorationOverlap(template, left, top) {
   return null;
 }
 
+function validateVisualCards(slide, at) {
+  const problems = [];
+  const cards = slide?.visualCards;
+  if (cards === undefined) return problems;
+  if (!Array.isArray(cards)) return [`${at}.visualCards must be an array when provided`];
+
+  const cardAllowed = slide?.template === 'ppt-content' || slide?.template === 'ppt';
+  if (!cardAllowed && cards.length > 0) {
+    problems.push(`${at}.visualCards must be [] for ${slide?.template} slides`);
+  }
+  if (cards.length > 4) problems.push(`${at}.visualCards must have at most 4 cards`);
+  if (cards.length === 1) problems.push(`${at}.visualCards must have 2-4 cards or be []`);
+
+  cards.forEach((card, j) => {
+    const cAt = `${at}.visualCards[${j}]`;
+    for (const field of ['label', 'title', 'body']) {
+      if (typeof card?.[field] !== 'string') problems.push(`${cAt}.${field} must be a string`);
+    }
+    if (!SLIDE_ICONS.includes(card?.icon)) problems.push(`${cAt}.icon "${card?.icon}" not allowed`);
+    if (!CARD_TONES.includes(card?.tone)) problems.push(`${cAt}.tone "${card?.tone}" not allowed`);
+    if ((card?.label || '').length > 32) problems.push(`${cAt}.label is too long`);
+    if ((card?.title || '').length > 42) problems.push(`${cAt}.title is too long`);
+    if ((card?.body || '').length > 96) problems.push(`${cAt}.body is too long`);
+  });
+
+  return problems;
+}
+
+function validatePptVisuals(slide, at) {
+  const problems = [];
+  const isPptContent = slide?.template === 'ppt-content' || slide?.template === 'ppt';
+
+  if (slide?.pptLayout !== undefined) {
+    if (!PPT_LAYOUTS.includes(slide.pptLayout)) {
+      problems.push(`${at}.pptLayout "${slide.pptLayout}" not allowed`);
+    }
+    if (!isPptContent && slide.pptLayout) {
+      problems.push(`${at}.pptLayout must be omitted or empty outside ppt-content`);
+    }
+  }
+
+  if (slide?.pptLayout === 'cards' && (!Array.isArray(slide.visualCards) || slide.visualCards.length < 2)) {
+    problems.push(`${at}.visualCards must have 2-4 cards when pptLayout is "cards"`);
+  }
+
+  const cue = slide?.visualCue;
+  if (cue === undefined) return problems;
+  if (!cue || typeof cue !== 'object') return [`${at}.visualCue must be an object when provided`];
+  for (const field of ['title', 'body']) {
+    if (typeof cue?.[field] !== 'string') problems.push(`${at}.visualCue.${field} must be a string`);
+  }
+  if (!SLIDE_ICONS.includes(cue?.icon)) problems.push(`${at}.visualCue.icon "${cue?.icon}" not allowed`);
+  if (!CARD_TONES.includes(cue?.tone)) problems.push(`${at}.visualCue.tone "${cue?.tone}" not allowed`);
+  if ((cue?.title || '').length > 44) problems.push(`${at}.visualCue.title is too long`);
+  if ((cue?.body || '').length > 96) problems.push(`${at}.visualCue.body is too long`);
+  if (!isPptContent && (cue?.title || cue?.body)) {
+    problems.push(`${at}.visualCue must be empty or omitted outside ppt-content`);
+  }
+
+  return problems;
+}
+
 function validateCarousel(carousel) {
   const problems = [];
   if (!carousel || typeof carousel !== 'object') return ['carousel must be an object'];
@@ -200,6 +301,8 @@ function validateCarousel(carousel) {
     for (const f of ['eyebrow', 'title', 'body', 'tag', 'cta']) {
       if (typeof slide?.[f] !== 'string') problems.push(`${at}.${f} must be a string`);
     }
+    problems.push(...validateVisualCards(slide, at));
+    problems.push(...validatePptVisuals(slide, at));
     const decorations = slide?.decorations;
     if (!Array.isArray(decorations)) {
       problems.push(`${at}.decorations must be an array`);
@@ -256,7 +359,7 @@ async function generate(userPrompt, options = {}) {
     { role: 'system', content: DESIGN_SYSTEM },
     { role: 'user', content: userPrompt },
   ];
-  let carousel = extractJson(await chat(messages));
+  let carousel = normalizeCarouselOutput(extractJson(await chat(messages)));
   let problems = validateCarousel(carousel);
   if (Number.isInteger(options.expectedSlideCount) && carousel?.slides?.length !== options.expectedSlideCount) {
     problems.push(`slides length must equal ${options.expectedSlideCount}`);
@@ -267,7 +370,7 @@ async function generate(userPrompt, options = {}) {
       role: 'user',
       content: `Your JSON has these problems. Fix them and return the full corrected JSON object only:\n- ${problems.join('\n- ')}`,
     });
-    carousel = extractJson(await chat(messages));
+    carousel = normalizeCarouselOutput(extractJson(await chat(messages)));
     problems = validateCarousel(carousel);
     if (Number.isInteger(options.expectedSlideCount) && carousel?.slides?.length !== options.expectedSlideCount) {
       problems.push(`slides length must equal ${options.expectedSlideCount}`);
@@ -283,6 +386,84 @@ function pptTemplateForIndex(index, total) {
   if (index === 0) return 'ppt-cover';
   if (index === total - 1) return 'ppt-closing';
   return 'ppt-content';
+}
+
+function normalizeCards(cards) {
+  return Array.isArray(cards)
+    ? cards
+        .filter((card) => card && (card.title || card.body || card.label))
+        .slice(0, 4)
+        .map((card, cardIndex) => ({
+          label: typeof card.label === 'string' ? card.label.slice(0, 32) : `Card ${cardIndex + 1}`,
+          title: typeof card.title === 'string' ? card.title.slice(0, 42) : '',
+          body: typeof card.body === 'string' ? card.body.slice(0, 96) : '',
+          icon: SLIDE_ICONS.includes(card.icon) ? card.icon : 'bookmark',
+          tone: CARD_TONES.includes(card.tone) ? card.tone : 'neutral',
+        }))
+    : [];
+}
+
+function inferPptLayout(slide, visualCards = []) {
+  if (visualCards.length >= 2) return 'cards';
+  const text = `${slide?.eyebrow || ''} ${slide?.title || ''} ${slide?.body || ''}`.toLowerCase();
+  const bodyLines = String(slide?.body || '').split('\n').map((line) => line.trim()).filter(Boolean);
+  if (/quote|kutipan|mindset|asumsi|bukan|jangan|kesalahan/.test(text)) return 'quote';
+  if (bodyLines.length >= 3 || /(^|\n)\s*[-*]\s+|(^|\n)\s*\d+[.)]\s+/m.test(slide?.body || '')) return 'points';
+  if (String(slide?.body || '').length < 140) return 'statement';
+  return 'split';
+}
+
+function normalizeCarouselOutput(carousel) {
+  if (!carousel || !Array.isArray(carousel.slides)) return carousel;
+  const total = carousel.slides.length;
+  return {
+    ...carousel,
+    slides: carousel.slides.map((slide, index) => {
+      const template = slide?.template;
+      const isPptContent =
+        template === 'ppt-content' || (template === 'ppt' && index > 0 && index < total - 1);
+      if (!isPptContent) {
+        return {
+          ...slide,
+          visualCards: [],
+          visualCue: undefined,
+          pptLayout: undefined,
+        };
+      }
+      const visualCards = normalizeCards(slide?.visualCards);
+      const requestedLayout = PPT_LAYOUTS.includes(slide?.pptLayout) ? slide.pptLayout : undefined;
+      const pptLayout =
+        requestedLayout === 'cards' && visualCards.length < 2
+          ? inferPptLayout(slide, visualCards)
+          : requestedLayout || inferPptLayout(slide, visualCards);
+
+      return {
+        ...slide,
+        pptLayout,
+        visualCue: normalizeVisualCue(slide, pptLayout),
+        visualCards: pptLayout === 'cards' && visualCards.length >= 2 ? visualCards : visualCards,
+      };
+    }),
+  };
+}
+
+function normalizeVisualCue(slide, layout) {
+  const cue = slide?.visualCue;
+  if (cue && typeof cue === 'object' && (cue.title || cue.body)) {
+    return {
+      title: typeof cue.title === 'string' ? cue.title.slice(0, 44) : '',
+      body: typeof cue.body === 'string' ? cue.body.slice(0, 96) : '',
+      icon: SLIDE_ICONS.includes(cue.icon) ? cue.icon : (SLIDE_ICONS.includes(slide?.icon) ? slide.icon : 'bookmark'),
+      tone: CARD_TONES.includes(cue.tone) ? cue.tone : 'blue',
+    };
+  }
+  if (layout === 'cards' || layout === 'quote') return undefined;
+  return {
+    title: String(slide?.tag || slide?.eyebrow || 'Core idea').slice(0, 44),
+    body: 'Visual pendukung agar slide tidak terasa kosong.',
+    icon: SLIDE_ICONS.includes(slide?.icon) ? slide.icon : 'bookmark',
+    tone: 'blue',
+  };
 }
 
 function extractDeckTitle(markdown) {
@@ -316,6 +497,16 @@ Rules:
 - Use template "ppt-cover" only for index 0, "ppt-closing" only for index ${totalSlides - 1}, otherwise "ppt-content".
 - Rewrite the source content into clean presentation copy. Do NOT copy raw markdown tables, long code blocks, ASCII diagrams, separators, or comments.
 - Keep each content slide light: max 2 short paragraphs OR 3-5 bullets. If there is a table/code/diagram, summarize it and add an illustration hint when useful.
+- When the source slide is naturally grouped (phases, formula, checklist,
+  comparison, framework, steps), create 2-4 visualCards with short contextual
+  labels, titles, bodies, icons, and tones. Otherwise set visualCards to [].
+- If visualCards is not empty, keep body to one short bridge sentence or empty.
+- Choose pptLayout for every ppt-content slide. Do not make every middle slide
+  plain text. Use a healthy mix: cards for grouped ideas, points for bullets,
+  quote for warnings/opinions, split for explanation + visualCue, statement for
+  very short punchy slides.
+- Fill visualCue for split/points/statement slides. It becomes a generated visual
+  panel on the slide, so make it specific to the content.
 - For useful visuals, append exactly one line at the end of body:
   [tambahkan ilustrasi: <deskripsi singkat & spesifik, Bahasa Indonesia>]
 - Never add decorations. Use backgroundPosition "center center".
@@ -354,6 +545,8 @@ function validateStructuredBatch(result, batch, totalSlides) {
     for (const field of ['eyebrow', 'title', 'body', 'tag', 'cta']) {
       if (typeof slide?.[field] !== 'string') problems.push(`${at}.${field} must be a string`);
     }
+    problems.push(...validateVisualCards(slide, at));
+    problems.push(...validatePptVisuals(slide, at));
     if (!Array.isArray(slide?.decorations) || slide.decorations.length !== 0) {
       problems.push(`${at}.decorations must be []`);
     }
@@ -373,9 +566,29 @@ function normalizeStructuredBatch(result, batch, totalSlides) {
     ...result,
     slides: result.slides.map((slide, offset) => {
       const source = batch[offset];
+      const visualCards = Array.isArray(slide?.visualCards)
+        ? slide.visualCards
+            .filter((card) => card && (card.title || card.body || card.label))
+            .slice(0, 4)
+            .map((card, cardIndex) => ({
+              label: typeof card.label === 'string' ? card.label.slice(0, 32) : `Card ${cardIndex + 1}`,
+              title: typeof card.title === 'string' ? card.title.slice(0, 42) : '',
+              body: typeof card.body === 'string' ? card.body.slice(0, 96) : '',
+              icon: SLIDE_ICONS.includes(card.icon) ? card.icon : 'bookmark',
+              tone: CARD_TONES.includes(card.tone) ? card.tone : 'neutral',
+            }))
+        : [];
+      const template = pptTemplateForIndex(source.index, totalSlides);
+      const isContent = source.index > 0 && source.index < totalSlides - 1;
+      const requestedLayout = PPT_LAYOUTS.includes(slide?.pptLayout) ? slide.pptLayout : undefined;
+      const pptLayout = isContent
+        ? (requestedLayout === 'cards' && visualCards.length < 2
+            ? inferPptLayout(slide, visualCards)
+            : requestedLayout || inferPptLayout(slide, visualCards))
+        : undefined;
       return {
         index: source.index,
-        template: pptTemplateForIndex(source.index, totalSlides),
+        template,
         eyebrow: typeof slide?.eyebrow === 'string' ? slide.eyebrow : '',
         title: typeof slide?.title === 'string' ? slide.title : source.sourceLabel,
         body: typeof slide?.body === 'string' ? slide.body : '',
@@ -385,6 +598,9 @@ function normalizeStructuredBatch(result, batch, totalSlides) {
         backgroundPosition: BACKGROUND_POSITIONS.includes(slide?.backgroundPosition)
           ? slide.backgroundPosition
           : 'center center',
+        pptLayout,
+        visualCue: isContent ? normalizeVisualCue(slide, pptLayout) : undefined,
+        visualCards: isContent && visualCards.length !== 1 ? visualCards : [],
         decorations: [],
       };
     }),
@@ -451,7 +667,10 @@ function buildLayoutPrompt(payload) {
 
   return `Choose ONLY layout metadata for the slides below — do NOT rewrite their text.
 Keep each slide's eyebrow/title/body/tag/cta exactly as given.
-For each input slide set: index (unchanged), template, icon, backgroundPosition, decorations.
+For each input slide set: index (unchanged), template, icon, backgroundPosition, visualCards, decorations.
+For PPT mode, also choose pptLayout and visualCue for each ppt-content slide.
+Keep existing visualCards unchanged unless the selected template/layout cannot use cards; then set visualCards to [].
+Do not choose plain text-only layouts for every PPT slide; use cards/points/quote/split where the content fits.
 ${modeInstruction}
 Return the full JSON object: { "title", "subtitle", "slides": [...] } using the existing title/subtitle.
 
@@ -483,6 +702,25 @@ Use this structure:
 - Keep each PPT content slide visually light: max 2 short paragraphs OR 3-5 bullets.
   If the material needs more text, split it into another slide instead of making
   one crowded slide.
+- For PPT content slides with grouped information (overview phases, formula,
+  checklist, comparison, framework, roadmap, feature groups), use visualCards:
+  2-4 cards max, each with short label/title/body, a relevant icon, and a tone.
+  Keep text size consistent by keeping every card compact. If visualCards is used,
+  keep body empty or one short bridge sentence. Do not use visualCards for every
+  slide; only when the content naturally fits cards.
+- Treat cards as same-style dark glass components. Do not rely on pastel colors,
+  long paragraphs, or many tiny cards to make the slide interesting.
+- Choose pptLayout for every middle slide:
+  - cards for roadmap/fase/formula/framework/comparison/checklist.
+  - points for 3-5 bullets or ordered steps.
+  - quote for warnings, myths, contrast statements, or memorable opinions.
+  - split for normal explanation plus a generated visualCue.
+  - statement for one short punchy idea.
+- Fill visualCue for split, points, and statement slides. Make it specific
+  enough to feel like an illustration panel, not a generic icon.
+- Avoid producing a deck where all middle slides are text-only. The deck should
+  alternate visual rhythms while keeping the same compact typography. Every slide
+  should feel intentionally composed, not like text plus a small random card.
 - Rewrite long tables/code/ASCII diagrams into simple bullets or an illustration
   suggestion. Keep at most 1-2 short inline code examples per slide.
 - Do NOT put full markdown deck syntax inside a slide body: no "---" separators,
@@ -497,7 +735,9 @@ Illustration suggestions for PPT content slides:
 - Use it only where it genuinely helps, not on every slide. Never put it on
   ppt-cover or ppt-closing.
 Use eyebrow for section labels, title for the main point, body for supporting copy/bullets, cta for a concise callout.
-Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, decorations.
+For ppt-cover and ppt-closing: visualCards [], omit visualCue and pptLayout.
+For ppt-content: include pptLayout, visualCue when useful, visualCards when useful, decorations [].
+Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, pptLayout, visualCue, visualCards, decorations.
 
 Brand context: ${JSON.stringify(sanitize(payload.brand || {}), null, 2)}`;
   }
@@ -508,9 +748,9 @@ Brand context: ${JSON.stringify(sanitize(payload.brand || {}), null, 2)}`;
 ${payload.topic}
 """
 Write ${payload.slideCount || 'between 5 and 8'} thumbnail slides in Bahasa Indonesia.
-Every slide MUST use template "reels". decorations MUST be [].
+Every slide MUST use template "reels". visualCards MUST be []. Omit pptLayout and visualCue. decorations MUST be [].
 Keep each title short and punchy, optimized for video thumbnails. Use body only for a second short text line if needed.
-Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, decorations.
+Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, visualCards, decorations.
 
 Brand context: ${JSON.stringify(sanitize(payload.brand || {}), null, 2)}`;
   }
@@ -522,7 +762,9 @@ ${payload.topic}
 Write ${payload.slideCount || 'between 5 and 8'} slides in Bahasa Indonesia (casual, punchy).
 Slide 0 = cover hook, middle = content, last = closing CTA.
 For middle slides, mix templates when useful: content, quote, stat, list, steps, reels, and ppt.
-Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, decorations.
+Use visualCards only for PPT-style grouped content; otherwise visualCards MUST be [].
+Omit pptLayout and visualCue unless the template is ppt-content or ppt.
+Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, pptLayout, visualCue, visualCards, decorations.
 
 Illustration suggestions (content slides only):
 - On content slides where a visual would help explain (a diagram, screenshot, code

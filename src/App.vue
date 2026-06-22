@@ -35,8 +35,11 @@ import type {
   BrandSettings,
   CarouselDraft,
   CarouselSlide,
+  PptLayout,
+  SlideCard,
   SlideDecoration,
   SlideIconId,
+  SlideVisualCue,
   SlideTemplate,
   ThemeId,
 } from './types/carousel';
@@ -168,6 +171,8 @@ function cloneSlides(slides: CarouselSlide[], keepIds = true) {
     ...slide,
     id: keepIds ? slide.id || crypto.randomUUID() : crypto.randomUUID(),
     decorations: slide.decorations?.map((decoration) => ({ ...decoration })),
+    visualCards: slide.visualCards?.map((card) => ({ ...card })),
+    visualCue: slide.visualCue ? { ...slide.visualCue } : undefined,
   }));
 }
 
@@ -465,6 +470,59 @@ function getSecondaryIcon(iconId?: SlideIconId) {
   return BookOpen;
 }
 
+function normalizeVisualCards(cards?: SlideCard[]) {
+  const tones = new Set<NonNullable<SlideCard['tone']>>([
+    'blue',
+    'green',
+    'orange',
+    'purple',
+    'neutral',
+  ]);
+
+  return (cards || [])
+    .filter((card) => card && (card.title || card.body || card.label))
+    .slice(0, 4)
+    .map((card, index) => {
+      const tone = card.tone || 'neutral';
+      return {
+        label: String(card.label || `Card ${index + 1}`).slice(0, 36),
+        title: String(card.title || '').slice(0, 44),
+        body: String(card.body || '').slice(0, 92),
+        icon: iconOptions.some((option) => option.id === card.icon) ? card.icon : 'bookmark',
+        tone: tones.has(tone) ? tone : 'neutral',
+      };
+    });
+}
+
+function normalizeVisualCue(cue?: SlideVisualCue): SlideVisualCue | undefined {
+  if (!cue || (!cue.title && !cue.body)) return undefined;
+  const tone = cue.tone || 'blue';
+  const tones = new Set<NonNullable<SlideVisualCue['tone']>>([
+    'blue',
+    'green',
+    'orange',
+    'purple',
+    'neutral',
+  ]);
+
+  return {
+    title: String(cue.title || '').slice(0, 44),
+    body: String(cue.body || '').slice(0, 96),
+    icon: iconOptions.some((option) => option.id === cue.icon) ? cue.icon : 'bookmark',
+    tone: tones.has(tone) ? tone : 'blue',
+  };
+}
+
+function normalizePptLayout(layout?: PptLayout): PptLayout | undefined {
+  return ['split', 'cards', 'quote', 'points', 'statement'].includes(layout || '')
+    ? layout
+    : undefined;
+}
+
+function hasVisualCards(slide: CarouselSlide) {
+  return Boolean(normalizeVisualCards(slide.visualCards).length);
+}
+
 function normalizeSlide(slide: CarouselSlide, index: number): CarouselSlide {
   const allowedTemplates = new Set<SlideTemplate>([
     'cover',
@@ -493,6 +551,9 @@ function normalizeSlide(slide: CarouselSlide, index: number): CarouselSlide {
     icon: slide.icon || (index === 0 ? 'video' : 'bookmark'),
     backgroundPosition: slide.backgroundPosition || (index === 0 ? 'center top' : 'center center'),
     decorations: slide.decorations,
+    visualCards: normalizeVisualCards(slide.visualCards),
+    visualCue: normalizeVisualCue(slide.visualCue),
+    pptLayout: normalizePptLayout(slide.pptLayout),
   };
 }
 
@@ -558,6 +619,78 @@ function stepItems(value: string) {
 
 function isDensePptBody(value: string) {
   return value.length > 360 || bodyLines(value).length > 6;
+}
+
+function illustrationHint(value: string) {
+  return value.match(/\[tambahkan ilustrasi:\s*([^\]]+)\]/i)?.[1]?.trim() || '';
+}
+
+function cleanPptBody(value: string) {
+  return value.replace(/\n?\s*\[tambahkan ilustrasi:\s*[^\]]+\]\s*/gi, '').trim();
+}
+
+function pptBodyIsCardCandidate(slide: CarouselSlide) {
+  if (!isPptTemplate(slide.template) || isPptCover(slide.template) || isPptClosing(slide.template)) {
+    return false;
+  }
+  return hasVisualCards(slide);
+}
+
+function getPptLayout(slide: CarouselSlide): PptLayout {
+  if (slide.pptLayout === 'cards' && hasVisualCards(slide)) return 'cards';
+  if (slide.pptLayout) return slide.pptLayout;
+  if (hasVisualCards(slide)) return 'cards';
+  if (/quote|kutipan|mindset|asumsi|bukan/i.test(`${slide.eyebrow} ${slide.title}`)) return 'quote';
+  if (listItems(slide.body).length >= 3 && bodyLines(slide.body).length >= 3) return 'points';
+  if (cleanPptBody(slide.body).length < 120) return 'statement';
+  return 'split';
+}
+
+function pptVisualCue(slide: CarouselSlide): SlideVisualCue {
+  const normalized = normalizeVisualCue(slide.visualCue);
+  if (normalized) return normalized;
+
+  const hint = illustrationHint(slide.body);
+  if (hint) {
+    return {
+      title: hint.slice(0, 44),
+      body: 'Visual pendukung untuk memperjelas inti slide.',
+      icon: slide.icon || 'bookmark',
+      tone: 'blue',
+    };
+  }
+
+  if (slide.icon === 'key') {
+    return {
+      title: 'Fokus utama',
+      body: 'Tekankan bagian yang paling penting untuk diingat.',
+      icon: 'key',
+      tone: 'purple',
+    };
+  }
+  if (slide.icon === 'check') {
+    return {
+      title: 'Bukti nyata',
+      body: 'Tunjukkan output yang bisa dilihat atau dicoba.',
+      icon: 'check',
+      tone: 'green',
+    };
+  }
+  if (slide.icon === 'link') {
+    return {
+      title: 'Next step',
+      body: 'Arahkan audiens ke aksi yang jelas.',
+      icon: 'link',
+      tone: 'orange',
+    };
+  }
+
+  return {
+    title: slide.tag || 'Core idea',
+    body: 'Satu pesan utama, dibuat ringkas dan mudah dipahami.',
+    icon: slide.icon || 'bookmark',
+    tone: 'blue',
+  };
 }
 
 function splitReelsLine(value: string) {
@@ -719,6 +852,9 @@ function slideForPrompt(slide: CarouselSlide, index: number) {
     cta: slide.cta ?? '',
     icon: slide.icon,
     backgroundPosition: slide.backgroundPosition,
+    visualCards: normalizeVisualCards(slide.visualCards),
+    visualCue: normalizeVisualCue(slide.visualCue),
+    pptLayout: normalizePptLayout(slide.pptLayout),
   };
 }
 
@@ -770,6 +906,9 @@ async function requestAiLayout(slides: CarouselSlide[], scope: 'current' | 'all'
       icon: SlideIconId;
       backgroundPosition: string;
       decorations: SlideDecoration[];
+      visualCards?: SlideCard[];
+      visualCue?: SlideVisualCue;
+      pptLayout?: PptLayout;
     }>;
   };
 }
@@ -781,6 +920,9 @@ function applyLayoutSuggestions(
     icon: SlideIconId;
     backgroundPosition: string;
     decorations: SlideDecoration[];
+    visualCards?: SlideCard[];
+    visualCue?: SlideVisualCue;
+    pptLayout?: PptLayout;
   }>,
 ) {
   for (const suggestion of suggestions) {
@@ -791,6 +933,9 @@ function applyLayoutSuggestions(
     slide.icon = suggestion.icon;
     slide.backgroundPosition = suggestion.backgroundPosition;
     slide.decorations = forcedTemplate ? [] : suggestion.decorations;
+    if (suggestion.visualCards) slide.visualCards = normalizeVisualCards(suggestion.visualCards);
+    if (suggestion.visualCue) slide.visualCue = normalizeVisualCue(suggestion.visualCue);
+    if (suggestion.pptLayout) slide.pptLayout = normalizePptLayout(suggestion.pptLayout);
   }
 }
 
@@ -873,6 +1018,9 @@ async function generateContent() {
           body: string;
           tag: string;
           cta: string;
+          visualCards?: SlideCard[];
+          visualCue?: SlideVisualCue;
+          pptLayout?: PptLayout;
         } & ReturnType<typeof inferLayout>
       >;
     };
@@ -894,6 +1042,9 @@ async function generateContent() {
         cta: slide.cta,
         backgroundPosition: slide.backgroundPosition,
         decorations: forcedTemplate ? [] : slide.decorations,
+        visualCards: normalizeVisualCards(slide.visualCards),
+        visualCue: normalizeVisualCue(slide.visualCue),
+        pptLayout: normalizePptLayout(slide.pptLayout),
         };
       });
     activeIndex.value = 0;
@@ -937,6 +1088,9 @@ function addSlide() {
     icon: 'bookmark',
     backgroundPosition: 'center center',
     decorations: [],
+    visualCards: [],
+    visualCue: undefined,
+    pptLayout: undefined,
     cta: 'CTA singkat',
   });
   activeIndex.value += 1;
@@ -966,6 +1120,9 @@ async function addImageSlide(event: Event) {
       mediaUrl,
       backgroundPosition: 'center center',
       decorations: [],
+      visualCards: [],
+      visualCue: undefined,
+      pptLayout: undefined,
       cta: '',
     });
     activeIndex.value += 1;
@@ -1804,6 +1961,9 @@ else upsertProject(projectSnapshot());
                   !isPptCoverAt(slide.template, index) &&
                   !isPptClosingAt(slide.template, index, draft.slides.length),
                 'ppt-closing-copy': isPptClosingAt(slide.template, index, draft.slides.length),
+                [`ppt-layout-${getPptLayout(slide)}`]:
+                  !isPptCoverAt(slide.template, index) &&
+                  !isPptClosingAt(slide.template, index, draft.slides.length),
               }"
             >
               <div class="ppt-kicker">
@@ -1816,11 +1976,83 @@ else upsertProject(projectSnapshot());
                 {{ slide.body }}
               </p>
               <div
-                v-else-if="slide.body"
-                class="body markdown-body ppt-md-body"
-                :class="{ dense: isDensePptBody(slide.body) }"
-                v-html="renderMarkdown(slide.body)"
-              />
+                v-else-if="
+                  !isPptCoverAt(slide.template, index) &&
+                  !isPptClosingAt(slide.template, index, draft.slides.length) &&
+                  pptBodyIsCardCandidate(slide)
+                "
+                class="ppt-card-grid"
+                :class="`count-${normalizeVisualCards(slide.visualCards).length}`"
+              >
+                <article
+                  v-for="(card, cardIndex) in normalizeVisualCards(slide.visualCards)"
+                  :key="`${slide.id}-card-${cardIndex}`"
+                  class="ppt-info-card"
+                  :class="`tone-${card.tone || 'neutral'}`"
+                >
+                  <div class="ppt-card-icon">
+                    <component :is="getSlideIcon(card.icon)" />
+                  </div>
+                  <div class="ppt-card-copy">
+                    <p class="ppt-card-label">{{ card.label }}</p>
+                    <h3>{{ card.title }}</h3>
+                    <p>{{ card.body }}</p>
+                  </div>
+                </article>
+              </div>
+              <div
+                v-else-if="
+                  !isPptCoverAt(slide.template, index) &&
+                  !isPptClosingAt(slide.template, index, draft.slides.length) &&
+                  getPptLayout(slide) === 'quote'
+                "
+                class="ppt-quote-layout"
+              >
+                <span class="ppt-quote-mark">“</span>
+                <p v-if="cleanPptBody(slide.body)" class="ppt-quote-body">
+                  {{ cleanPptBody(slide.body) }}
+                </p>
+              </div>
+              <div
+                v-else-if="
+                  !isPptCoverAt(slide.template, index) &&
+                  !isPptClosingAt(slide.template, index, draft.slides.length) &&
+                  getPptLayout(slide) === 'points'
+                "
+                class="ppt-points-layout"
+              >
+                <div class="ppt-point-list">
+                  <div v-for="(item, itemIndex) in listItems(cleanPptBody(slide.body)).slice(0, 5)" :key="itemIndex" class="ppt-point">
+                    <span>{{ String(itemIndex + 1).padStart(2, '0') }}</span>
+                    <p>{{ item }}</p>
+                  </div>
+                </div>
+                <aside class="ppt-visual-panel" :class="`tone-${pptVisualCue(slide).tone || 'blue'}`">
+                  <component :is="getSlideIcon(pptVisualCue(slide).icon)" />
+                  <strong>{{ pptVisualCue(slide).title }}</strong>
+                  <p>{{ pptVisualCue(slide).body }}</p>
+                </aside>
+              </div>
+              <div
+                v-else-if="
+                  !isPptCoverAt(slide.template, index) &&
+                  !isPptClosingAt(slide.template, index, draft.slides.length)
+                "
+                class="ppt-split-layout"
+              >
+                <div
+                  v-if="cleanPptBody(slide.body)"
+                  class="body markdown-body ppt-md-body"
+                  :class="{ dense: isDensePptBody(cleanPptBody(slide.body)) }"
+                  v-html="renderMarkdown(cleanPptBody(slide.body))"
+                />
+                <div v-else class="ppt-empty-copy" />
+                <aside class="ppt-visual-panel" :class="`tone-${pptVisualCue(slide).tone || 'blue'}`">
+                  <component :is="getSlideIcon(pptVisualCue(slide).icon)" />
+                  <strong>{{ pptVisualCue(slide).title }}</strong>
+                  <p>{{ pptVisualCue(slide).body }}</p>
+                </aside>
+              </div>
               <div v-if="slide.cta" class="ppt-callout" :class="{ 'ppt-closing-bar': isPptClosingAt(slide.template, index, draft.slides.length) }">
                 {{ slide.cta }}
               </div>

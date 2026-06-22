@@ -33,6 +33,23 @@ export interface SlideDecoration {
   opacity: number;
 }
 
+export interface SlideCard {
+  label: string;
+  title: string;
+  body: string;
+  icon: SlideIconId;
+  tone?: 'blue' | 'green' | 'orange' | 'purple' | 'neutral';
+}
+
+export type PptLayout = 'split' | 'cards' | 'quote' | 'points' | 'statement';
+
+export interface SlideVisualCue {
+  title: string;
+  body: string;
+  icon: SlideIconId;
+  tone?: 'blue' | 'green' | 'orange' | 'purple' | 'neutral';
+}
+
 export interface CarouselSlide {
   id: string;
   template: SlideTemplate;
@@ -44,6 +61,9 @@ export interface CarouselSlide {
   mediaUrl?: string;
   backgroundPosition?: string;
   decorations?: SlideDecoration[];
+  visualCards?: SlideCard[];
+  visualCue?: SlideVisualCue;
+  pptLayout?: PptLayout;
   cta?: string;
 }
 
