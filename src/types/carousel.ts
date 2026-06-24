@@ -50,6 +50,41 @@ export interface SlideVisualCue {
   tone?: 'blue' | 'green' | 'orange' | 'purple' | 'neutral';
 }
 
+export type PptAiBlockType =
+  | 'badge'
+  | 'headline'
+  | 'body'
+  | 'card'
+  | 'quote'
+  | 'list'
+  | 'visual'
+  | 'callout'
+  | 'metric';
+
+export type PptAiTone = 'blue' | 'green' | 'orange' | 'purple' | 'neutral';
+export type PptAiSize = 'sm' | 'md' | 'lg' | 'xl';
+
+export interface PptAiBlock {
+  type: PptAiBlockType;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text?: string;
+  title?: string;
+  body?: string;
+  label?: string;
+  items?: string[];
+  icon?: SlideIconId;
+  tone?: PptAiTone;
+  size?: PptAiSize;
+  align?: 'left' | 'center' | 'right';
+}
+
+export interface PptAiLayout {
+  blocks: PptAiBlock[];
+}
+
 export interface CarouselSlide {
   id: string;
   template: SlideTemplate;
@@ -64,6 +99,7 @@ export interface CarouselSlide {
   visualCards?: SlideCard[];
   visualCue?: SlideVisualCue;
   pptLayout?: PptLayout;
+  aiLayout?: PptAiLayout;
   cta?: string;
 }
 

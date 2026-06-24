@@ -15,6 +15,8 @@ const SLIDE_ICONS = ['bookmark', 'video', 'play', 'link', 'check', 'follow', 'co
 const DECORATION_ICONS = [...SLIDE_ICONS, 'sparkles', 'star', 'asterisk'];
 const CARD_TONES = ['blue', 'green', 'orange', 'purple', 'neutral'];
 const PPT_LAYOUTS = ['split', 'cards', 'quote', 'points', 'statement'];
+const AI_BLOCK_TYPES = ['badge', 'headline', 'body', 'card', 'quote', 'list', 'visual', 'callout', 'metric'];
+const AI_BLOCK_SIZES = ['sm', 'md', 'lg', 'xl'];
 const TEMPLATES = [
   'cover',
   'content',
@@ -51,6 +53,8 @@ Allowed enums:
 - slide.icon: ${SLIDE_ICONS.join(', ')}
 - decoration.icon: ${DECORATION_ICONS.join(', ')}
 - pptLayout: ${PPT_LAYOUTS.join(', ')}
+- aiLayout block.type: ${AI_BLOCK_TYPES.join(', ')}
+- aiLayout block.size: ${AI_BLOCK_SIZES.join(', ')}
 - backgroundPosition: ${BACKGROUND_POSITIONS.join(' | ')}
 
 Templates:
@@ -121,6 +125,24 @@ PPT visual layouts:
 - Avoid tiny floating cards. The design expects either a full card grid, a strong
   points list, a large quote, or a balanced split with one large glass panel.
 
+AI-driven PPT layout (aiLayout):
+- For every ppt-cover, ppt-content, and ppt-closing slide, aiLayout.blocks is
+  REQUIRED. Think of it as safe UI code in JSON. It controls the visible layout.
+- Use 3-8 blocks per slide. Use coordinates in percentages of the 16:9 canvas:
+  x, y, w, h are numbers, not strings. Keep x 6-86, y 10-82, w/h large enough.
+- Do not make tiny random cards. If you use card/visual blocks, make them large
+  enough to look intentional: w >= 20 and h >= 18 for card/visual.
+- Use same dark glassmorphism style via block types; tone only changes accent.
+- Use these strong compositions:
+  1) Cover: badge + big headline + body + callout/visual, with generous scale.
+  2) Problem/insight: body or quote left + large visual/card right.
+  3) Roadmap/framework: badge + headline + 3-4 card blocks in a grid.
+  4) Steps: badge/headline + list block + visual/callout.
+  5) Closing: headline + body + wide callout/CTA.
+- Keep text compact. Layout quality matters more than writing long paragraphs.
+- Avoid the top-right logo/braces area. Keep important blocks away from x > 82
+  and y < 20.
+
 Decorations (only for cover & closing) — keep them SPARSE, CONTEXTUAL, never over text:
 - 2-4 items. left/top are percentages of the slide ("80%"), size in cqw ("8cqw"),
   rotate in deg ("-10deg"), opacity between 0.55 and 0.9.
@@ -144,7 +166,12 @@ Output shape (JSON object, no prose, no markdown fences):
   "subtitle": string,
   "slides": [
     { "index": int, "template", "eyebrow", "title", "body", "tag", "cta",
-      "icon", "backgroundPosition", "pptLayout", "visualCue": {
+      "icon", "backgroundPosition", "pptLayout", "aiLayout": {
+        "blocks": [
+          { "type", "x", "y", "w", "h", "text", "title", "body", "label",
+            "items": [], "icon", "tone", "size", "align" }
+        ]
+      }, "visualCue": {
         "title", "body", "icon", "tone"
       }, "visualCards": [
         { "label", "title", "body", "icon", "tone" }
@@ -283,6 +310,68 @@ function validatePptVisuals(slide, at) {
   return problems;
 }
 
+function validateAiLayout(slide, at) {
+  const problems = [];
+  const isPptSlide = ['ppt', 'ppt-cover', 'ppt-content', 'ppt-closing'].includes(slide?.template);
+  const layout = slide?.aiLayout;
+
+  if (!isPptSlide) {
+    if (layout?.blocks?.length) problems.push(`${at}.aiLayout must be omitted outside PPT slides`);
+    return problems;
+  }
+
+  if (!layout || typeof layout !== 'object' || !Array.isArray(layout.blocks)) {
+    problems.push(`${at}.aiLayout.blocks is required for PPT slides`);
+    return problems;
+  }
+  if (layout.blocks.length < 3 || layout.blocks.length > 8) {
+    problems.push(`${at}.aiLayout.blocks must contain 3-8 blocks`);
+  }
+
+  layout.blocks.forEach((block, j) => {
+    const bAt = `${at}.aiLayout.blocks[${j}]`;
+    if (!AI_BLOCK_TYPES.includes(block?.type)) problems.push(`${bAt}.type "${block?.type}" not allowed`);
+    for (const field of ['x', 'y', 'w', 'h']) {
+      if (typeof block?.[field] !== 'number' || !Number.isFinite(block[field])) {
+        problems.push(`${bAt}.${field} must be a finite number`);
+      }
+    }
+    const x = Number(block?.x);
+    const y = Number(block?.y);
+    const w = Number(block?.w);
+    const h = Number(block?.h);
+    if (Number.isFinite(x) && Number.isFinite(w) && (x < 2 || x + w > 96)) {
+      problems.push(`${bAt} exceeds horizontal canvas bounds`);
+    }
+    if (Number.isFinite(y) && Number.isFinite(h) && (y < 4 || y + h > 94)) {
+      problems.push(`${bAt} exceeds vertical canvas bounds`);
+    }
+    if (['card', 'visual'].includes(block?.type) && (w < 20 || h < 16)) {
+      problems.push(`${bAt} card/visual block is too small`);
+    }
+    if (block?.type === 'headline' && (w < 34 || h < 14)) {
+      problems.push(`${bAt} headline block is too small`);
+    }
+    if (block?.type === 'list' && (!Array.isArray(block.items) || block.items.length < 2)) {
+      problems.push(`${bAt}.items must have at least 2 items for list blocks`);
+    }
+    if (block?.icon !== undefined && !SLIDE_ICONS.includes(block.icon)) {
+      problems.push(`${bAt}.icon "${block.icon}" not allowed`);
+    }
+    if (block?.tone !== undefined && !CARD_TONES.includes(block.tone)) {
+      problems.push(`${bAt}.tone "${block.tone}" not allowed`);
+    }
+    if (block?.size !== undefined && !AI_BLOCK_SIZES.includes(block.size)) {
+      problems.push(`${bAt}.size "${block.size}" not allowed`);
+    }
+    if (block?.align !== undefined && !['left', 'center', 'right'].includes(block.align)) {
+      problems.push(`${bAt}.align "${block.align}" not allowed`);
+    }
+  });
+
+  return problems;
+}
+
 function validateCarousel(carousel) {
   const problems = [];
   if (!carousel || typeof carousel !== 'object') return ['carousel must be an object'];
@@ -303,6 +392,7 @@ function validateCarousel(carousel) {
     }
     problems.push(...validateVisualCards(slide, at));
     problems.push(...validatePptVisuals(slide, at));
+    problems.push(...validateAiLayout(slide, at));
     const decorations = slide?.decorations;
     if (!Array.isArray(decorations)) {
       problems.push(`${at}.decorations must be an array`);
@@ -403,6 +493,174 @@ function normalizeCards(cards) {
     : [];
 }
 
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function fallbackAiLayout(slide, index = 0, total = 1) {
+  const template = slide?.template || pptTemplateForIndex(index, total);
+  const title = String(slide?.title || 'Untitled slide');
+  const body = String(slide?.body || '').replace(/\n?\s*\[tambahkan ilustrasi:\s*[^\]]+\]\s*/gi, '').trim();
+  const eyebrow = String(slide?.eyebrow || `Slide ${String(index + 1).padStart(2, '0')}`);
+  const cta = String(slide?.cta || '');
+  const icon = SLIDE_ICONS.includes(slide?.icon) ? slide.icon : 'bookmark';
+  const visualCards = normalizeCards(slide?.visualCards);
+
+  if (template === 'ppt-cover') {
+    return {
+      blocks: [
+        { type: 'badge', x: 8, y: 33, w: 28, h: 6, text: eyebrow, tone: 'green', size: 'sm', align: 'left' },
+        { type: 'headline', x: 8, y: 40, w: 58, h: 26, text: title, tone: 'neutral', size: 'xl', align: 'left' },
+        { type: 'body', x: 8, y: 68, w: 42, h: 10, text: body, tone: 'neutral', size: 'sm', align: 'left' },
+        ...(cta
+          ? [{ type: 'callout', x: 8, y: 82, w: 48, h: 7, title: cta, icon: 'link', tone: 'green', size: 'sm', align: 'left' }]
+          : []),
+      ],
+    };
+  }
+
+  if (template === 'ppt-closing') {
+    return {
+      blocks: [
+        { type: 'badge', x: 8, y: 28, w: 24, h: 6, text: eyebrow || 'CTA', tone: 'green', size: 'sm', align: 'left' },
+        { type: 'headline', x: 8, y: 36, w: 52, h: 20, text: title, tone: 'neutral', size: 'lg', align: 'left' },
+        { type: 'body', x: 8, y: 58, w: 46, h: 12, text: body, tone: 'neutral', size: 'sm', align: 'left' },
+        { type: 'callout', x: 8, y: 76, w: 76, h: 8, title: cta || slide?.tag || 'Ambil langkah berikutnya', icon: 'link', tone: 'green', size: 'md', align: 'left' },
+      ],
+    };
+  }
+
+  if (visualCards.length >= 2) {
+    const positions =
+      visualCards.length === 2
+        ? [
+            [8, 38, 36, 18],
+            [46, 38, 36, 18],
+          ]
+        : visualCards.length === 3
+          ? [
+              [8, 38, 25, 20],
+              [35, 38, 25, 20],
+              [62, 38, 25, 20],
+            ]
+          : [
+              [8, 35, 35, 16],
+              [45, 35, 35, 16],
+              [8, 54, 35, 16],
+              [45, 54, 35, 16],
+            ];
+    return {
+      blocks: [
+        { type: 'badge', x: 8, y: 13, w: 34, h: 6, text: eyebrow, tone: 'green', size: 'sm', align: 'left' },
+        { type: 'headline', x: 8, y: 22, w: 62, h: 12, text: title, tone: 'neutral', size: 'md', align: 'left' },
+        ...visualCards.map((card, cardIndex) => {
+          const [x, y, w, h] = positions[cardIndex];
+          return {
+            type: 'card',
+            x,
+            y,
+            w,
+            h,
+            label: card.label,
+            title: card.title,
+            body: card.body,
+            icon: card.icon,
+            tone: card.tone || 'blue',
+            size: 'md',
+            align: 'left',
+          };
+        }),
+      ],
+    };
+  }
+
+  const lines = body
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, '').trim())
+    .filter(Boolean);
+  const isList = lines.length >= 3;
+  const isQuote = /quote|kutipan|mindset|asumsi|bukan|jangan|kesalahan/i.test(`${eyebrow} ${title}`);
+
+  if (isQuote) {
+    return {
+      blocks: [
+        { type: 'badge', x: 8, y: 16, w: 34, h: 6, text: eyebrow, tone: 'green', size: 'sm', align: 'left' },
+        { type: 'quote', x: 8, y: 30, w: 58, h: 34, title, body, tone: 'green', size: 'lg', align: 'left' },
+        { type: 'visual', x: 69, y: 32, w: 22, h: 26, title: slide?.tag || 'Insight utama', body: 'Pegang prinsip ini sebelum lanjut.', icon, tone: 'blue', size: 'md', align: 'left' },
+      ],
+    };
+  }
+
+  if (isList) {
+    return {
+      blocks: [
+        { type: 'badge', x: 8, y: 13, w: 34, h: 6, text: eyebrow, tone: 'green', size: 'sm', align: 'left' },
+        { type: 'headline', x: 8, y: 22, w: 58, h: 12, text: title, tone: 'neutral', size: 'md', align: 'left' },
+        { type: 'list', x: 8, y: 38, w: 50, h: 34, label: slide?.tag || 'Key points', items: lines.slice(0, 5), tone: 'green', size: 'md', align: 'left' },
+        { type: 'visual', x: 64, y: 36, w: 24, h: 28, title: slide?.tag || 'Fokus', body: 'Ambil inti slide ini dan praktikkan.', icon, tone: 'blue', size: 'md', align: 'left' },
+      ],
+    };
+  }
+
+  return {
+    blocks: [
+      { type: 'badge', x: 8, y: 14, w: 34, h: 6, text: eyebrow, tone: 'green', size: 'sm', align: 'left' },
+      { type: 'headline', x: 8, y: 24, w: 54, h: 16, text: title, tone: 'neutral', size: 'md', align: 'left' },
+      { type: 'body', x: 8, y: 44, w: 43, h: 24, text: body, tone: 'neutral', size: 'md', align: 'left' },
+      { type: 'visual', x: 58, y: 32, w: 28, h: 30, title: slide?.tag || 'Core idea', body: 'Visual pendukung agar pesan lebih kuat.', icon, tone: 'blue', size: 'md', align: 'left' },
+    ],
+  };
+}
+
+function normalizeAiLayout(layout, slide, index = 0, total = 1) {
+  const fallback = fallbackAiLayout(slide, index, total);
+  if (!layout || !Array.isArray(layout.blocks)) return fallback;
+  const blocks = layout.blocks
+    .filter((block) => block && AI_BLOCK_TYPES.includes(block.type))
+    .slice(0, 8)
+    .map((block) => {
+      const minByType = {
+        badge: [14, 5],
+        headline: [34, 14],
+        body: [24, 10],
+        card: [20, 16],
+        quote: [40, 20],
+        list: [32, 18],
+        visual: [20, 16],
+        callout: [26, 8],
+        metric: [20, 16],
+      };
+      const [minW, minH] = minByType[block.type] || [12, 8];
+      let x = clampNumber(block.x, 8, 2, 94);
+      let y = clampNumber(block.y, 16, 4, 88);
+      if (x + minW > 96) x = Math.max(2, 96 - minW);
+      if (y + minH > 94) y = Math.max(4, 94 - minH);
+      const w = clampNumber(block.w, Math.max(36, minW), minW, 96 - x);
+      const h = clampNumber(block.h, Math.max(14, minH), minH, 94 - y);
+      return {
+        type: block.type,
+        x,
+        y,
+        w,
+        h,
+        text: typeof block.text === 'string' ? block.text.slice(0, 150) : '',
+        title: typeof block.title === 'string' ? block.title.slice(0, 96) : '',
+        body: typeof block.body === 'string' ? block.body.slice(0, 180) : '',
+        label: typeof block.label === 'string' ? block.label.slice(0, 48) : '',
+        items: Array.isArray(block.items)
+          ? block.items.map((item) => String(item).slice(0, 82)).slice(0, 5)
+          : [],
+        icon: SLIDE_ICONS.includes(block.icon) ? block.icon : 'bookmark',
+        tone: CARD_TONES.includes(block.tone) ? block.tone : 'blue',
+        size: AI_BLOCK_SIZES.includes(block.size) ? block.size : 'md',
+        align: ['left', 'center', 'right'].includes(block.align) ? block.align : 'left',
+      };
+    });
+  return blocks.length >= 3 ? { blocks } : fallback;
+}
+
 function inferPptLayout(slide, visualCards = []) {
   if (visualCards.length >= 2) return 'cards';
   const text = `${slide?.eyebrow || ''} ${slide?.title || ''} ${slide?.body || ''}`.toLowerCase();
@@ -423,11 +681,15 @@ function normalizeCarouselOutput(carousel) {
       const isPptContent =
         template === 'ppt-content' || (template === 'ppt' && index > 0 && index < total - 1);
       if (!isPptContent) {
+        const isPptShell = ['ppt', 'ppt-cover', 'ppt-closing'].includes(template);
         return {
           ...slide,
           visualCards: [],
           visualCue: undefined,
           pptLayout: undefined,
+          aiLayout: isPptShell
+            ? normalizeAiLayout(slide.aiLayout, slide, index, total)
+            : undefined,
         };
       }
       const visualCards = normalizeCards(slide?.visualCards);
@@ -440,6 +702,7 @@ function normalizeCarouselOutput(carousel) {
       return {
         ...slide,
         pptLayout,
+        aiLayout: normalizeAiLayout(slide.aiLayout, slide, index, total),
         visualCue: normalizeVisualCue(slide, pptLayout),
         visualCards: pptLayout === 'cards' && visualCards.length >= 2 ? visualCards : visualCards,
       };
@@ -507,6 +770,10 @@ Rules:
   very short punchy slides.
 - Fill visualCue for split/points/statement slides. It becomes a generated visual
   panel on the slide, so make it specific to the content.
+- Fill aiLayout.blocks for EVERY output slide. This is the actual visible PPT UI.
+  Use badge/headline/body/card/list/quote/visual/callout/metric blocks with x/y/w/h
+  percentages. Make the layout feel intentionally designed, not text plus a tiny
+  decoration.
 - For useful visuals, append exactly one line at the end of body:
   [tambahkan ilustrasi: <deskripsi singkat & spesifik, Bahasa Indonesia>]
 - Never add decorations. Use backgroundPosition "center center".
@@ -547,6 +814,7 @@ function validateStructuredBatch(result, batch, totalSlides) {
     }
     problems.push(...validateVisualCards(slide, at));
     problems.push(...validatePptVisuals(slide, at));
+    problems.push(...validateAiLayout(slide, at));
     if (!Array.isArray(slide?.decorations) || slide.decorations.length !== 0) {
       problems.push(`${at}.decorations must be []`);
     }
@@ -586,7 +854,7 @@ function normalizeStructuredBatch(result, batch, totalSlides) {
             ? inferPptLayout(slide, visualCards)
             : requestedLayout || inferPptLayout(slide, visualCards))
         : undefined;
-      return {
+      const normalizedSlide = {
         index: source.index,
         template,
         eyebrow: typeof slide?.eyebrow === 'string' ? slide.eyebrow : '',
@@ -602,6 +870,10 @@ function normalizeStructuredBatch(result, batch, totalSlides) {
         visualCue: isContent ? normalizeVisualCue(slide, pptLayout) : undefined,
         visualCards: isContent && visualCards.length !== 1 ? visualCards : [],
         decorations: [],
+      };
+      return {
+        ...normalizedSlide,
+        aiLayout: normalizeAiLayout(slide?.aiLayout, normalizedSlide, source.index, totalSlides),
       };
     }),
   };
@@ -671,6 +943,7 @@ For each input slide set: index (unchanged), template, icon, backgroundPosition,
 For PPT mode, also choose pptLayout and visualCue for each ppt-content slide.
 Keep existing visualCards unchanged unless the selected template/layout cannot use cards; then set visualCards to [].
 Do not choose plain text-only layouts for every PPT slide; use cards/points/quote/split where the content fits.
+For PPT mode, generate or improve aiLayout.blocks for every PPT slide. Keep text content meaning unchanged, but you may choose the best block composition and positions.
 ${modeInstruction}
 Return the full JSON object: { "title", "subtitle", "slides": [...] } using the existing title/subtitle.
 
@@ -721,6 +994,11 @@ Use this structure:
 - Avoid producing a deck where all middle slides are text-only. The deck should
   alternate visual rhythms while keeping the same compact typography. Every slide
   should feel intentionally composed, not like text plus a small random card.
+- For every PPT slide, generate aiLayout.blocks. This is the visible UI. Use
+  badge/headline/body/card/list/quote/visual/callout/metric blocks with x/y/w/h
+  percentages. Keep blocks large, balanced, and within the safe canvas.
+- The fallback title/body fields still matter, but do not rely on them for visual
+  composition. The actual PPT should come from aiLayout.
 - Rewrite long tables/code/ASCII diagrams into simple bullets or an illustration
   suggestion. Keep at most 1-2 short inline code examples per slide.
 - Do NOT put full markdown deck syntax inside a slide body: no "---" separators,
@@ -735,9 +1013,9 @@ Illustration suggestions for PPT content slides:
 - Use it only where it genuinely helps, not on every slide. Never put it on
   ppt-cover or ppt-closing.
 Use eyebrow for section labels, title for the main point, body for supporting copy/bullets, cta for a concise callout.
-For ppt-cover and ppt-closing: visualCards [], omit visualCue and pptLayout.
-For ppt-content: include pptLayout, visualCue when useful, visualCards when useful, decorations [].
-Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, pptLayout, visualCue, visualCards, decorations.
+For ppt-cover and ppt-closing: visualCards [], omit visualCue and pptLayout, but include aiLayout.
+For ppt-content: include pptLayout, aiLayout, visualCue when useful, visualCards when useful, decorations [].
+Each slide needs index, template, eyebrow, title, body, tag, cta, icon, backgroundPosition, pptLayout, aiLayout, visualCue, visualCards, decorations.
 
 Brand context: ${JSON.stringify(sanitize(payload.brand || {}), null, 2)}`;
   }

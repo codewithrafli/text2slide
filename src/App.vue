@@ -35,6 +35,10 @@ import type {
   BrandSettings,
   CarouselDraft,
   CarouselSlide,
+  PptAiBlock,
+  PptAiLayout,
+  PptAiSize,
+  PptAiTone,
   PptLayout,
   SlideCard,
   SlideDecoration,
@@ -173,6 +177,9 @@ function cloneSlides(slides: CarouselSlide[], keepIds = true) {
     decorations: slide.decorations?.map((decoration) => ({ ...decoration })),
     visualCards: slide.visualCards?.map((card) => ({ ...card })),
     visualCue: slide.visualCue ? { ...slide.visualCue } : undefined,
+    aiLayout: slide.aiLayout
+      ? { blocks: slide.aiLayout.blocks.map((block) => ({ ...block, items: block.items?.slice() })) }
+      : undefined,
   }));
 }
 
@@ -519,6 +526,63 @@ function normalizePptLayout(layout?: PptLayout): PptLayout | undefined {
     : undefined;
 }
 
+function clampPercent(value: unknown, fallback: number, min = 0, max = 100) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeAiTone(tone?: PptAiTone): PptAiTone {
+  return ['blue', 'green', 'orange', 'purple', 'neutral'].includes(tone || '')
+    ? tone || 'blue'
+    : 'blue';
+}
+
+function normalizeAiSize(size?: PptAiSize): PptAiSize {
+  return ['sm', 'md', 'lg', 'xl'].includes(size || '') ? size || 'md' : 'md';
+}
+
+function normalizeAiLayout(layout?: PptAiLayout): PptAiLayout | undefined {
+  const allowedTypes = new Set<PptAiBlock['type']>([
+    'badge',
+    'headline',
+    'body',
+    'card',
+    'quote',
+    'list',
+    'visual',
+    'callout',
+    'metric',
+  ]);
+  const blocks = (layout?.blocks || [])
+    .filter((block) => block && allowedTypes.has(block.type))
+    .slice(0, 10)
+    .map((block) => {
+      const x = clampPercent(block.x, 8, 2, 94);
+      const y = clampPercent(block.y, 14, 6, 88);
+      const w = clampPercent(block.w, 36, 8, 92 - x);
+      const h = clampPercent(block.h, 12, 5, 92 - y);
+      return {
+        type: block.type,
+        x,
+        y,
+        w,
+        h,
+        text: String(block.text || '').slice(0, 150),
+        title: String(block.title || '').slice(0, 96),
+        body: String(block.body || '').slice(0, 180),
+        label: String(block.label || '').slice(0, 48),
+        items: (block.items || []).map((item) => String(item).slice(0, 82)).slice(0, 5),
+        icon: iconOptions.some((option) => option.id === block.icon) ? block.icon : 'bookmark',
+        tone: normalizeAiTone(block.tone),
+        size: normalizeAiSize(block.size),
+        align: ['left', 'center', 'right'].includes(block.align || '') ? block.align : 'left',
+      };
+    });
+
+  return blocks.length ? { blocks } : undefined;
+}
+
 function hasVisualCards(slide: CarouselSlide) {
   return Boolean(normalizeVisualCards(slide.visualCards).length);
 }
@@ -554,6 +618,7 @@ function normalizeSlide(slide: CarouselSlide, index: number): CarouselSlide {
     visualCards: normalizeVisualCards(slide.visualCards),
     visualCue: normalizeVisualCue(slide.visualCue),
     pptLayout: normalizePptLayout(slide.pptLayout),
+    aiLayout: normalizeAiLayout(slide.aiLayout),
   };
 }
 
@@ -691,6 +756,24 @@ function pptVisualCue(slide: CarouselSlide): SlideVisualCue {
     icon: slide.icon || 'bookmark',
     tone: 'blue',
   };
+}
+
+function aiBlockStyle(block: PptAiBlock) {
+  return {
+    left: `${block.x}%`,
+    top: `${block.y}%`,
+    width: `${block.w}%`,
+    height: `${block.h}%`,
+    textAlign: block.align || 'left',
+  };
+}
+
+function aiBlockText(block: PptAiBlock) {
+  return block.text || block.title || block.body || '';
+}
+
+function aiLayoutForSlide(slide: CarouselSlide) {
+  return normalizeAiLayout(slide.aiLayout);
 }
 
 function splitReelsLine(value: string) {
@@ -855,6 +938,7 @@ function slideForPrompt(slide: CarouselSlide, index: number) {
     visualCards: normalizeVisualCards(slide.visualCards),
     visualCue: normalizeVisualCue(slide.visualCue),
     pptLayout: normalizePptLayout(slide.pptLayout),
+    aiLayout: normalizeAiLayout(slide.aiLayout),
   };
 }
 
@@ -909,6 +993,7 @@ async function requestAiLayout(slides: CarouselSlide[], scope: 'current' | 'all'
       visualCards?: SlideCard[];
       visualCue?: SlideVisualCue;
       pptLayout?: PptLayout;
+      aiLayout?: PptAiLayout;
     }>;
   };
 }
@@ -923,6 +1008,7 @@ function applyLayoutSuggestions(
     visualCards?: SlideCard[];
     visualCue?: SlideVisualCue;
     pptLayout?: PptLayout;
+    aiLayout?: PptAiLayout;
   }>,
 ) {
   for (const suggestion of suggestions) {
@@ -936,6 +1022,7 @@ function applyLayoutSuggestions(
     if (suggestion.visualCards) slide.visualCards = normalizeVisualCards(suggestion.visualCards);
     if (suggestion.visualCue) slide.visualCue = normalizeVisualCue(suggestion.visualCue);
     if (suggestion.pptLayout) slide.pptLayout = normalizePptLayout(suggestion.pptLayout);
+    if (suggestion.aiLayout) slide.aiLayout = normalizeAiLayout(suggestion.aiLayout);
   }
 }
 
@@ -1021,6 +1108,7 @@ async function generateContent() {
           visualCards?: SlideCard[];
           visualCue?: SlideVisualCue;
           pptLayout?: PptLayout;
+          aiLayout?: PptAiLayout;
         } & ReturnType<typeof inferLayout>
       >;
     };
@@ -1045,6 +1133,7 @@ async function generateContent() {
         visualCards: normalizeVisualCards(slide.visualCards),
         visualCue: normalizeVisualCue(slide.visualCue),
         pptLayout: normalizePptLayout(slide.pptLayout),
+        aiLayout: normalizeAiLayout(slide.aiLayout),
         };
       });
     activeIndex.value = 0;
@@ -1091,6 +1180,7 @@ function addSlide() {
     visualCards: [],
     visualCue: undefined,
     pptLayout: undefined,
+    aiLayout: undefined,
     cta: 'CTA singkat',
   });
   activeIndex.value += 1;
@@ -1123,6 +1213,7 @@ async function addImageSlide(event: Event) {
       visualCards: [],
       visualCue: undefined,
       pptLayout: undefined,
+      aiLayout: undefined,
       cta: '',
     });
     activeIndex.value += 1;
@@ -1904,7 +1995,7 @@ else upsertProject(projectSnapshot());
             <section class="list-copy">
               <p class="slide-eyebrow">{{ slide.eyebrow }}</p>
               <h2>{{ slide.title }}</h2>
-              <ol class="template-list">
+              <ol class="template-list-items">
                 <li v-for="(item, itemIndex) in listItems(slide.body)" :key="itemIndex">
                   <span>{{ String(itemIndex + 1).padStart(2, '0') }}</span>
                   <p>{{ item }}</p>
@@ -1961,11 +2052,70 @@ else upsertProject(projectSnapshot());
                   !isPptCoverAt(slide.template, index) &&
                   !isPptClosingAt(slide.template, index, draft.slides.length),
                 'ppt-closing-copy': isPptClosingAt(slide.template, index, draft.slides.length),
+                'ppt-ai-copy': Boolean(aiLayoutForSlide(slide)),
                 [`ppt-layout-${getPptLayout(slide)}`]:
                   !isPptCoverAt(slide.template, index) &&
                   !isPptClosingAt(slide.template, index, draft.slides.length),
               }"
             >
+              <div v-if="aiLayoutForSlide(slide)" class="ppt-ai-layout">
+                <article
+                  v-for="(block, blockIndex) in aiLayoutForSlide(slide)?.blocks"
+                  :key="`${slide.id}-ai-block-${blockIndex}`"
+                  class="ppt-ai-block"
+                  :class="[
+                    `type-${block.type}`,
+                    `tone-${block.tone || 'blue'}`,
+                    `size-${block.size || 'md'}`,
+                    `align-${block.align || 'left'}`,
+                  ]"
+                  :style="aiBlockStyle(block)"
+                >
+                  <span v-if="block.type === 'badge'" class="ai-badge-text">
+                    {{ aiBlockText(block) }}
+                  </span>
+
+                  <template v-else-if="block.type === 'headline'">
+                    <h3>{{ aiBlockText(block) }}</h3>
+                  </template>
+
+                  <template v-else-if="block.type === 'body'">
+                    <p>{{ aiBlockText(block) }}</p>
+                  </template>
+
+                  <template v-else-if="block.type === 'quote'">
+                    <span class="ai-quote-mark">“</span>
+                    <h3>{{ block.title || block.text }}</h3>
+                    <p v-if="block.body">{{ block.body }}</p>
+                  </template>
+
+                  <template v-else-if="block.type === 'list'">
+                    <p v-if="block.label" class="ai-block-label">{{ block.label }}</p>
+                    <ul>
+                      <li v-for="(item, itemIndex) in block.items" :key="itemIndex">
+                        <span>{{ String(itemIndex + 1).padStart(2, '0') }}</span>
+                        <p>{{ item }}</p>
+                      </li>
+                    </ul>
+                  </template>
+
+                  <template v-else-if="block.type === 'card' || block.type === 'visual' || block.type === 'callout'">
+                    <div class="ai-block-icon">
+                      <component :is="getSlideIcon(block.icon)" />
+                    </div>
+                    <p v-if="block.label" class="ai-block-label">{{ block.label }}</p>
+                    <h3>{{ block.title || block.text }}</h3>
+                    <p v-if="block.body">{{ block.body }}</p>
+                  </template>
+
+                  <template v-else-if="block.type === 'metric'">
+                    <p v-if="block.label" class="ai-block-label">{{ block.label }}</p>
+                    <strong>{{ block.title || block.text }}</strong>
+                    <p v-if="block.body">{{ block.body }}</p>
+                  </template>
+                </article>
+              </div>
+              <template v-else>
               <div class="ppt-kicker">
                 {{ slide.eyebrow || `Slide ${String(index + 1).padStart(2, '0')}` }}
               </div>
@@ -2056,6 +2206,7 @@ else upsertProject(projectSnapshot());
               <div v-if="slide.cta" class="ppt-callout" :class="{ 'ppt-closing-bar': isPptClosingAt(slide.template, index, draft.slides.length) }">
                 {{ slide.cta }}
               </div>
+              </template>
             </section>
             <div class="ppt-watermark">{{ String(index + 1).padStart(2, '0') }}</div>
           </template>
